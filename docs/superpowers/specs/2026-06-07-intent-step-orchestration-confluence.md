@@ -17,6 +17,7 @@ The LLM is not the flow controller. The LLM only normalizes natural language int
 
 | Area | Decision |
 | --- | --- |
+| Entry intent | Lex remains the first-layer intent classifier. Lambda receives a Lex-classified intent. |
 | Intent model | All intents are peers. No parent/child intent hierarchy. |
 | Intent relationship | Intents can declare allowed relationships, such as `MakePayment -> LinkExternalAccount`. |
 | Resume behavior | Resume only happens when the Orchestrator has an explicit `ResumeFrame`. |
@@ -50,7 +51,12 @@ The LLM is not the flow controller. The LLM only normalizes natural language int
 ## High-Level Architecture
 
 ```text
-User utterance
+Amazon Connect / Lex
+  -> Lex classified intent + utterance + session id
+  -> Go Lambda
+  -> Orchestrator loads ConversationState
+  -> Orchestrator resolves active peer intent
+  -> Step Prompt / ExpectedAnswerSpec
   -> DialogueParser / ADK / LLM
   -> DialogueCommand
   -> CommandGuard
@@ -63,6 +69,12 @@ User utterance
   -> next assistant message
 ```
 
+Lex is still responsible for first-layer intent classification. Lambda should not ask the LLM to detect the initial intent from scratch.
+
+The Orchestrator uses the Lex intent to start or route the top-level peer intent when there is no active suspended dialogue state. Once a conversation is active, persisted `ConversationState.activeIntent` and `activeStep` become the source of truth.
+
+Mid-flow `switch_intent` is different from initial Lex classification. It is a structured command emitted inside an active conversation and must still pass `CommandGuard` and intent relationship policy.
+
 ## Confluence Diagram Pack
 
 The diagrams below are written in Mermaid. In Confluence, paste each block into a Mermaid macro if available. If Mermaid rendering is not available, keep the section titles and use the tables/text as discussion notes.
@@ -71,16 +83,22 @@ The diagrams below are written in Mermaid. In Confluence, paste each block into 
 
 ```mermaid
 flowchart TD
-  User["User utterance"] --> Parser["DialogueParser / ADK / LLM"]
+  User["User utterance"] --> Lex["Lex first-layer intent classification"]
+  Lex --> Lambda["Go Lambda receives Lex intent + utterance + session id"]
+  Lambda --> Orchestrator["Orchestrator"]
+  Orchestrator --> StateRepoLoad["Load ConversationState"]
+  StateRepoLoad --> ResolveIntent["Resolve active peer intent"]
+  ResolveIntent --> ExpectedSpec["Current Step + ExpectedAnswerSpec"]
+  ExpectedSpec --> Parser["DialogueParser / ADK / LLM"]
   Parser --> Command["DialogueCommand"]
   Command --> Guard["CommandGuard"]
-  Guard --> Orchestrator["Orchestrator"]
+  Guard --> Orchestrator
   Orchestrator --> IntentRegistry["IntentRegistry"]
   Orchestrator --> ActiveStep["Active Step"]
   ActiveStep --> StepResult["StepResult"]
   StepResult --> Effects["StateEffects"]
   Effects --> Applier["EffectApplier"]
-  Applier --> StateRepo["StateRepository"]
+  Applier --> StateRepo["Persist ConversationState"]
   StateRepo --> Response["Next assistant message"]
 
   Guard -. "invalid command" .-> Unknown["Unknown / Reprompt"]
