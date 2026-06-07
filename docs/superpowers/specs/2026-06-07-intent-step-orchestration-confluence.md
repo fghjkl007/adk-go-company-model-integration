@@ -179,10 +179,9 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  StepResult["StepResult"] --> Validate["1. Validate StepResult\nallowed data + transition"]
-  Validate --> Update["2. Update ConversationState\nset new values + clear stale values"]
-  Update --> Transition["3. Apply transition"]
-  Transition --> Persist["4. Write SessionAttributes"]
+  StepResult["StepResult"] --> Update["1. Update ConversationState\nset new values + clear stale values"]
+  Update --> Transition["2. Apply transition\nactive step / delegate / resume"]
+  Transition --> Persist["3. Write SessionAttributes"]
 ```
 
 ## Minimal Rules
@@ -191,9 +190,9 @@ flowchart LR
 | --- | --- |
 | Entry intent | Lex provides the first intent. |
 | LLM | LLM only returns structured `DialogueCommand`. |
-| Guard | `CommandGuard` validates before updating Lex SessionAttributes. |
-| Step | Step returns `StepResult`; it does not write Lex SessionAttributes. |
-| Orchestrator | Only Orchestrator updates Lex SessionAttributes from `StepResult`. |
+| Guard | `CommandGuard` validates command shape and canonical values against `ExpectedAnswerSpec`. |
+| Step | Step owns business logic and returns `StepResult`; it does not write Lex SessionAttributes. |
+| Orchestrator | Only Orchestrator updates Lex SessionAttributes from `StepResult` and handles active step / delegate / resume. |
 | Storage | `ConversationState` lives inside Lex `sessionAttributes`. |
 | Resume | Resume only if `ResumeFrame` exists. |
 | Resume target | Return to original intent + original step. |
