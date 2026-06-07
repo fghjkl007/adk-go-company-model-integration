@@ -1,5 +1,7 @@
 # Intent / Step Orchestration Demo
 
+Note: this Markdown file renders well on GitHub. For a real Confluence page, use `2026-06-07-intent-step-orchestration-confluence-paste.html`: open it in a browser, copy the rendered page, then paste into Confluence.
+
 ## Purpose
 
 Small demo design for showing how a Go Lambda can manage multi-step intents after Lex has already classified the first intent.
