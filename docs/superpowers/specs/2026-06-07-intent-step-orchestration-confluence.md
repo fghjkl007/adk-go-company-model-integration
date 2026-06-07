@@ -9,7 +9,7 @@ Key idea:
 ```text
 Lex classifies the entry intent.
 LLM normalizes the user's answer into a DialogueCommand.
-Go Orchestrator validates, routes, applies state changes, and resumes flows.
+Go Orchestrator reads Lex SessionAttributes, validates/routes, applies state changes, and writes updated SessionAttributes.
 ```
 
 ## Demo Scope
@@ -20,6 +20,7 @@ Go Orchestrator validates, routes, applies state changes, and resumes flows.
 - `MakePayment` can route to `LinkExternalAccount`.
 - Resume happens only when a `ResumeFrame` exists.
 - On resume, return to the original intent and original step, then rerun `Prepare -> Prompt`.
+- Demo state is stored in Lex `sessionAttributes`.
 
 ## Diagram 1: Runtime Architecture
 
@@ -27,8 +28,8 @@ Go Orchestrator validates, routes, applies state changes, and resumes flows.
 flowchart TD
   User["User utterance"] --> Lex["Lex classifies entry intent"]
   Lex --> Lambda["Go Lambda receives Lex intent + utterance + session id"]
-  Lambda --> StateLoad["Load ConversationState"]
-  StateLoad --> Orchestrator["Orchestrator"]
+  Lambda --> SessionRead["Read Lex SessionAttributes"]
+  SessionRead --> Orchestrator["Orchestrator"]
   Orchestrator --> Active["Resolve active intent + active step"]
   Active --> Spec["Current Step + ExpectedAnswerSpec"]
   Spec --> LLM["ADK / LLM normalizes answer"]
@@ -38,8 +39,8 @@ flowchart TD
   Route --> Step["Step.Handle if current-step answer"]
   Step --> Effects["StateEffects"]
   Effects --> Apply["Orchestrator applies effects"]
-  Apply --> Save["Persist ConversationState"]
-  Save --> Response["Next assistant message"]
+  Apply --> SessionWrite["Write updated Lex SessionAttributes"]
+  SessionWrite --> Response["Next assistant message"]
 
   Guard -. "invalid" .-> Unknown["Unknown / reprompt"]
   Unknown --> Response
@@ -59,7 +60,7 @@ flowchart TD
   Act -->|change_step / switch_intent| Route["Orchestrator routing"]
   Act -->|unknown| Reprompt["Reprompt / fallback"]
   Handle --> Result["StateEffects + NextAction"]
-  Result --> Apply["Apply + save state"]
+  Result --> Apply["Apply + write SessionAttributes"]
   Route --> Enter
   Reprompt --> Wait
 ```
@@ -175,7 +176,7 @@ flowchart LR
   Validate --> Data["2. Apply data"]
   Data --> Invalidate["3. Invalidate stale fields"]
   Invalidate --> Transition["4. Apply transition"]
-  Transition --> Persist["5. Persist state"]
+  Transition --> Persist["5. Write SessionAttributes"]
 ```
 
 ## Minimal Rules
@@ -187,6 +188,7 @@ flowchart LR
 | Guard | `CommandGuard` validates before state mutation. |
 | Step | Step returns `StateEffects`; it does not write state. |
 | Orchestrator | Only Orchestrator applies effects and saves state. |
+| State storage | Demo stores `ConversationState` in Lex `sessionAttributes`. |
 | Resume | Resume only if `ResumeFrame` exists. |
 | Resume target | Return to original intent + original step. |
 | Resume execution | Rerun `Prepare -> Prompt`. |
