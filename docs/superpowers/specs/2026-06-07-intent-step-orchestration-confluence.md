@@ -9,7 +9,7 @@ Key idea:
 ```text
 Lex classifies the entry intent.
 LLM normalizes the user's answer into a DialogueCommand.
-Go Orchestrator reads Lex SessionAttributes, validates/routes, applies state changes, and writes updated SessionAttributes.
+Go Orchestrator reads Lex SessionAttributes, validates/routes, updates ConversationState, and writes updated SessionAttributes.
 ```
 
 ## Demo Scope
@@ -20,7 +20,7 @@ Go Orchestrator reads Lex SessionAttributes, validates/routes, applies state cha
 - `MakePayment` can route to `LinkExternalAccount`.
 - Resume happens only when a `ResumeFrame` exists.
 - On resume, return to the original intent and original step, then rerun `Prepare -> Prompt`.
-- Demo state is stored in Lex `sessionAttributes`.
+- Demo `ConversationState` is stored in Lex `sessionAttributes`.
 
 ## Diagram 1: Runtime Architecture
 
@@ -36,9 +36,8 @@ flowchart TD
   Command --> Guard["CommandGuard"]
   Guard --> Route["Orchestrator routes command"]
   Route --> Step["Step.Handle if current-step answer"]
-  Step --> Effects["StateEffects"]
-  Effects --> Apply["Orchestrator applies effects"]
-  Apply --> SessionWrite["Write updated Lex SessionAttributes"]
+  Step --> StepResult["StepResult"]
+  StepResult --> SessionWrite["Orchestrator updates Lex SessionAttributes"]
   SessionWrite --> Response["Next assistant message"]
 
   Guard -. "invalid" .-> Unknown["Unknown / reprompt"]
@@ -58,8 +57,8 @@ flowchart TD
   Act -->|answer / confirm / deny| Handle["Step.Handle"]
   Act -->|change_step / switch_intent| Route["Orchestrator routing"]
   Act -->|unknown| Reprompt["Reprompt / fallback"]
-  Handle --> Result["StateEffects + NextAction"]
-  Result --> Apply["Apply + write SessionAttributes"]
+  Handle --> Result["StepResult"]
+  Result --> Apply["Orchestrator writes updated SessionAttributes"]
   Route --> Enter
   Reprompt --> Wait
 ```
@@ -73,17 +72,17 @@ sequenceDiagram
   participant Orchestrator
   participant MakePayment
   participant LinkExternalAccount
-  participant State
+  participant SessionAttributes as Lex SessionAttributes
 
   User->>Lex: "I want to make a payment"
   Lex->>Orchestrator: Lex intent = MakePayment
   Orchestrator->>MakePayment: Start / continue MakePayment
   MakePayment->>User: "Use your previous account or link a new account?"
   User->>Orchestrator: "link a new account"
-  Orchestrator->>State: Push ResumeFrame(makePayment, currentStep)
+  Orchestrator->>SessionAttributes: Write ResumeFrame(makePayment, currentStep)
   Orchestrator->>LinkExternalAccount: Start LinkExternalAccount
-  LinkExternalAccount->>Orchestrator: CompleteIntent + StateEffects
-  Orchestrator->>State: Apply effects + pop ResumeFrame
+  LinkExternalAccount->>Orchestrator: CompleteIntent + StepResult
+  Orchestrator->>SessionAttributes: Apply StepResult + pop ResumeFrame
   Orchestrator->>MakePayment: Resume original step
   MakePayment->>MakePayment: Rerun Prepare -> Prompt
   Orchestrator->>User: Ask refreshed MakePayment question
@@ -97,26 +96,27 @@ sequenceDiagram
   participant Lex
   participant Orchestrator
   participant LinkExternalAccount
-  participant State
+  participant SessionAttributes as Lex SessionAttributes
 
   User->>Lex: "I want to link an account"
   Lex->>Orchestrator: Lex intent = LinkExternalAccount
   Orchestrator->>LinkExternalAccount: Start direct LinkExternalAccount
-  LinkExternalAccount->>Orchestrator: CompleteIntent + StateEffects
-  Orchestrator->>State: Apply effects
-  Orchestrator->>State: Check SuspensionStack
-  State-->>Orchestrator: Empty
+  LinkExternalAccount->>Orchestrator: CompleteIntent + StepResult
+  Orchestrator->>SessionAttributes: Apply StepResult
+  Orchestrator->>SessionAttributes: Check SuspensionStack
+  SessionAttributes-->>Orchestrator: Empty
   Orchestrator->>User: Finish / main menu / Lex complete
 ```
 
-## Diagram 5: Conversation State
+## Diagram 5: ConversationState In SessionAttributes
 
 ```mermaid
 flowchart TD
-  State["ConversationState"] --> Active["ActivePointer"]
-  State --> Customer["CustomerContext"]
-  State --> Intents["IntentStates"]
-  State --> Stack["SuspensionStack"]
+  SessionAttrs["Lex sessionAttributes"] --> Conv["ConversationState JSON"]
+  Conv --> Active["ActivePointer"]
+  Conv --> Customer["CustomerContext"]
+  Conv --> Intents["IntentStates"]
+  Conv --> Stack["SuspensionStack"]
 
   Active --> ActiveEx["Example: activeIntent=makePayment, activeStep=getPaymentDate"]
 
@@ -132,14 +132,15 @@ flowchart TD
   Frame --> FrameEx["Example: makePayment.choosePaymentAccount"]
 ```
 
-## Diagram 6: State While Linking Account
+## Diagram 6: SessionAttributes While Linking Account
 
 ```mermaid
 flowchart TD
-  State["ConversationState while LinkExternalAccount is active"] --> Active["ActivePointer"]
-  State --> Intents["IntentStates"]
-  State --> Customer["CustomerContext"]
-  State --> Stack["SuspensionStack"]
+  SessionAttrs["Lex sessionAttributes while LinkExternalAccount is active"] --> Conv["ConversationState JSON"]
+  Conv --> Active["ActivePointer"]
+  Conv --> Intents["IntentStates"]
+  Conv --> Customer["CustomerContext"]
+  Conv --> Stack["SuspensionStack"]
 
   Active --> ActiveValue["activeIntent=linkExternalAccount, activeStep=collectAccountType"]
   Intents --> MP["makePayment: paymentType=onetime, amount=20, paymentAccountRef=previousAccount"]
@@ -163,15 +164,15 @@ flowchart TD
 
   Answer --> Handle["Current Step.Handle"]
   Confirm --> Handle
-  Handle --> Effects["StateEffects"]
-  Effects --> Apply["Orchestrator applies effects"]
+  Handle --> StepResult["StepResult"]
+  StepResult --> Apply["Orchestrator updates Lex SessionAttributes"]
 ```
 
-## Diagram 8: Effect Apply Order
+## Diagram 8: StepResult Apply Order
 
 ```mermaid
 flowchart LR
-  Effects["StateEffects"] --> Validate["1. Validate"]
+  StepResult["StepResult"] --> Validate["1. Validate"]
   Validate --> Data["2. Apply data"]
   Data --> Invalidate["3. Invalidate stale fields"]
   Invalidate --> Transition["4. Apply transition"]
@@ -184,10 +185,10 @@ flowchart LR
 | --- | --- |
 | Entry intent | Lex provides the first intent. |
 | LLM | LLM only returns structured `DialogueCommand`. |
-| Guard | `CommandGuard` validates before state mutation. |
-| Step | Step returns `StateEffects`; it does not write state. |
-| Orchestrator | Only Orchestrator applies effects and saves state. |
-| State storage | Demo stores `ConversationState` in Lex `sessionAttributes`. |
+| Guard | `CommandGuard` validates before updating Lex SessionAttributes. |
+| Step | Step returns `StepResult`; it does not write Lex SessionAttributes. |
+| Orchestrator | Only Orchestrator updates Lex SessionAttributes from `StepResult`. |
+| State storage | `ConversationState` lives inside Lex `sessionAttributes`. |
 | Resume | Resume only if `ResumeFrame` exists. |
 | Resume target | Return to original intent + original step. |
 | Resume execution | Rerun `Prepare -> Prompt`. |
