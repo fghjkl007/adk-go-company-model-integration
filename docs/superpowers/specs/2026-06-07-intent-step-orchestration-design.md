@@ -2,14 +2,14 @@
 
 ## Goal
 
-Design a demo-first, production-shaped architecture for a Go Lambda dialogue orchestrator that supports multiple peer intents and step-based flows.
+Design a demo-first, production-shaped architecture for a Go Lambda dialogue orchestrator that supports multiple same-level intents and step-based flows.
 
 The demo should include:
 
 - `MakePaymentIntent`
 - `LinkExternalAccountIntent`
 
-All intents are peers. No intent owns another intent. Intents may declare relationships to other intents, and the Orchestrator decides whether to switch, resume, or complete.
+All intents are same-level intents. No intent owns another intent. Intents may declare relationships to other intents, and the Orchestrator decides whether to switch, resume, or complete.
 
 This document is architecture only. It does not require implementation code.
 
@@ -31,7 +31,7 @@ Amazon Connect / Lex
   -> Lex classified intent + utterance + session id
   -> Go Lambda
   -> Orchestrator loads ConversationState
-  -> Orchestrator resolves active peer intent
+  -> Orchestrator resolves active same-level intent
   -> Step Prompt / ExpectedAnswerSpec
   -> DialogueParser / ADK / LLM
   -> DialogueCommand
@@ -45,7 +45,7 @@ Amazon Connect / Lex
   -> next assistant message
 ```
 
-Lex is still responsible for first-layer intent classification. The Orchestrator uses the Lex intent to start or route the top-level peer intent when there is no active suspended dialogue state.
+Lex is still responsible for first-layer intent classification. The Orchestrator uses the Lex intent to start or route the top-level same-level intent when there is no active suspended dialogue state.
 
 Once a conversation is already active, the persisted `ConversationState` is the source of truth for `activeIntent` and `activeStep`. The LLM is not the initial intent classifier and is not the flow controller. It only maps natural language into a command shape that Go code can validate and understand.
 
@@ -55,7 +55,7 @@ Mid-flow `switch_intent` is different from initial Lex classification. It is a s
 
 ### IntentRegistry
 
-Holds all available peer intents.
+Holds all available same-level intents.
 
 Responsibilities:
 
@@ -66,7 +66,7 @@ Responsibilities:
 
 ### Intent
 
-An intent is a peer-level flow definition.
+An intent is a same-level flow definition.
 
 Intent contract:
 
@@ -82,7 +82,7 @@ CompletionPolicy
 Intent responsibilities:
 
 - Own the step graph for that intent.
-- Declare peer intent relationships.
+- Declare same-level intent relationships.
 - Declare completion behavior.
 - Declare resume behavior.
 
@@ -254,7 +254,7 @@ phase
 
 ### SuspensionStack
 
-Stores explicit resume frames when one peer intent is interrupted to launch another peer intent.
+Stores explicit resume frames when one same-level intent is interrupted to launch another same-level intent.
 
 ```text
 ResumeFrame
@@ -369,7 +369,7 @@ change_step
 
 switch_intent
   -> do not call current Handle
-  -> validate peer intent relationship
+  -> validate same-level intent relationship
   -> push ResumeFrame if switching away from an active intent
   -> activate target intent
 
@@ -411,9 +411,9 @@ The Orchestrator applies effects through an `EffectApplier`.
 
 Effects should be auditable and deterministic.
 
-## Peer Intent Relationship
+## Same-Level Intent Relationship
 
-All intents are peers.
+All intents are same-level intents.
 
 `MakePaymentIntent` may declare a relationship to `LinkExternalAccountIntent`.
 
@@ -424,8 +424,12 @@ from: makePayment
 to: linkExternalAccount
 allowedReasons:
   - missing_external_account
+  - user_selected_link_new_account
   - user_wants_new_account
   - replace_payment_account
+primaryTrigger:
+  step: makePayment.choosePaymentAccount
+  prompt: use previous account or link a new account
 resumePolicy:
   resume_if_resume_frame_exists
 ```
@@ -440,7 +444,8 @@ Resume behavior depends on `SuspensionStack`.
 
 ```text
 MakePayment active
-User asks to link an external account
+MakePayment asks whether to use previous account or link a new account
+User chooses to link a new account
 Orchestrator pushes ResumeFrame(makePayment, currentStep)
 LinkExternalAccount active
 LinkExternalAccount completes
@@ -453,6 +458,7 @@ MakePayment resumes at original step
 ```text
 No suspended MakePayment
 User asks to link an external account
+Lex intent = LinkExternalAccount
 LinkExternalAccount active
 LinkExternalAccount completes
 SuspensionStack is empty
@@ -493,6 +499,8 @@ Examples:
 ```
 
 Global interrupts are handled before current `Step.Handle`.
+
+This is not the primary happy path for linking an account. The primary happy path is `MakePayment.choosePaymentAccount` asking whether the user wants to use the previous account or link a new account. The global interrupt rule exists so the same relationship still works if the user asks to link an account later in the flow.
 
 Examples:
 
