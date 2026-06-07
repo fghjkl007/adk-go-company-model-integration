@@ -1,42 +1,13 @@
-# Response To Claude Code: Section 1 Architecture
+# Response To Claude Code
 
-Proceed, but adjust Section 1 with these key points before the component sketch:
+Looks right. Keep going with data flow, error handling, and testing.
 
-1. Lambda safety
+Small adjustments:
 
-- The ADK parser must be request-scoped.
-- Do not keep ContextPack, user utterance, captured command, ADK session, payment state, active step, or Lex session data in globals or shared parser fields.
-- Warm Lambda containers can be reused for different customers.
-- Only stateless objects can be shared: model adapter, HTTP client, immutable config, logger, metrics client.
-- Create a fresh capturedCommand, emit_dialogue_command tool, and one-shot ADK run per Parse call.
+1. Treat ADK session_id as internal only. Do not confuse it with Lex/customer session id.
+2. BeforeTool logs should not include raw values like amount, date, account info, or user utterance. Log command type / slot / confidence only.
+3. If BeforeTool rejects the tool call, make sure Parse returns Unknown and the existing orchestrator decides the fallback prompt.
+4. Keep hooks.ValidateCommand as the final gate before any state mutation.
+5. Add tests for Lambda safety: two Parse calls with different ContextPacks must not share capturedCommand or session state.
 
-2. Parser wiring
-
-- Keep CommandParser unchanged.
-- Keep openai_parser.go as the direct JSON-schema baseline.
-- PARSER_MODE=direct should use NewOpenAIParser.
-- PARSER_MODE=adk should use NewADKParser.
-- normalizing_parser.go can stay in the repo, but should not be the default demo path.
-
-3. ADK responsibility
-
-- ADK should only parse the utterance into the existing dialogue.Command shape.
-- ADK should not control the payment flow.
-- Existing Go CommandGuard / hooks.ValidateCommand remains the final validator.
-- Existing Go orchestrator still owns next step, rollback, switch intent, and downstream invalidation.
-
-4. Callbacks
-
-- Add BeforeAgent, BeforeModel, AfterModel, BeforeTool, and AfterAgent callbacks.
-- Use them for trace logging, sanitized metadata, model status, tool allowlist, and early command-shape checks.
-- Do not mutate payment state inside callbacks.
-- Add AfterTool only if the installed ADK Go version supports it.
-
-5. Acceptance checks
-
-- direct mode still works.
-- adk mode still normalizes "checking" to the existing canonical command value.
-- adk mode still handles disclosure correction by emitting a command the existing orchestrator can use to go back to amount and continue.
-- No customer-specific state leaks across Parse calls or Lambda invocations.
-
-Then continue with the component sketch.
+Then continue.
