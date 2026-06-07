@@ -1,166 +1,77 @@
-# Claude Code Prompt: Add Google ADK Go To Existing Model Integration
+# Response To Claude Code: Section 1 Architecture
 
-We already have a working Go demo that can call a company OpenAI-compatible model directly.
+Proceed, but adjust Section 1 before sketching components.
 
-Current working behavior:
+Keep the overall direction: one new parser file, one demo-cli wiring edit, and reuse the existing OpenAIGatewayModel adapter if it already implements the ADK model.LLM contract. The important correction is that the ADK parser must be Lambda-safe and request-scoped.
 
-1. When the flow expects values such as "use checking" or "use card", if the user only says "checking", the current model parser can normalize it to the canonical value "checking".
-2. During disclosure, if the user says they want to change the payment amount, the existing logic can go back, update the amount, invalidate disclosure, and continue the remaining flow such as collecting the payment date.
+Please update Section 1 with these rules:
 
-Do not rewrite the existing flow logic.
-Do not rebuild the payment orchestrator.
-Do not move payment business logic into the LLM.
-Do not replace the existing CommandGuard, state machine, or downstream invalidation logic unless required for ADK integration.
+1. Keep the CommandParser interface unchanged.
+2. Keep openai_parser.go unchanged as the direct JSON-schema baseline.
+3. Keep normalizing_parser.go in the tree, but it should no longer be the default demo path.
+4. Add internal/parser/adk_parser.go as the ADK-backed CommandParser.
+5. Reuse internal/adkbridge/openai_llm.go only if it is stateless and already satisfies google.golang.org/adk/model.LLM.
+6. cmd/demo-cli/main.go should use PARSER_MODE=direct|adk.
+7. PARSER_MODE=direct should wire NewOpenAIParser, not NewNormalizingParser.
+8. PARSER_MODE=adk should wire NewADKParser.
+9. Unknown PARSER_MODE values should fail fast with a clear error.
 
-Your task is to add Google ADK Go on top of the existing model connectivity and existing dialogue logic.
+For Lambda safety, be explicit:
 
-Target path:
+- Do not store per-customer state in package globals.
+- Do not store current ContextPack, user utterance, captured command, tool result, ADK session, payment draft, active step, or Lex session data in shared parser fields.
+- A warm Lambda container may serve different customers across invocations, so anything customer-specific must be rebuilt or loaded per request.
+- The only shared objects allowed across Parse calls are stateless infrastructure objects, such as the OpenAIGatewayModel adapter, HTTP client, immutable config, logger, and metrics client.
+- The ADK session for the parser should be one-shot per Parse call and discarded after that call.
+- The durable conversation/payment state remains outside ADK, loaded from the existing Lex/session persistence path and passed into the parser as ContextPack.
 
-```text
-User input
--> ContextPack
--> ADK llmagent
--> OpenAIGatewayModel adapter
--> existing company OpenAI-compatible model client
--> structured command
--> existing Go guard / normalizer
--> existing Go orchestrator
--> next prompt
-```
+For internal/parser/adk_parser.go, use Approach A:
 
-Required ADK integration:
+- NewADKParser(cfg ADKConfig) returns a CommandParser.
+- ADKConfig should mirror the existing OpenAI parser config names as much as possible: API key, base URL, app ID, model, and any required gateway headers.
+- The parser can hold the shared stateless model adapter and rendered instruction template.
+- Each Parse(ctx, input) call must create a fresh local capturedCommand variable.
+- Each Parse(ctx, input) call must create a fresh emit_dialogue_command tool whose handler writes only to that local capturedCommand variable.
+- Each Parse(ctx, input) call should build or run a one-shot llmagent with that request-local tool.
+- The ADK agent receives the same ContextPack JSON and latest user utterance that openai_parser.go sends today.
+- After the agent run finishes, return capturedCommand if the tool fired.
+- If the tool did not fire, return Unknown.
+- Always pass the result through the existing Go guard / hooks.ValidateCommand path before the orchestrator mutates state.
 
-1. Add an OpenAIGatewayModel adapter that implements google.golang.org/adk/model.LLM.
-2. The adapter should reuse the existing company model connectivity logic:
-   - same base URL configuration
-   - same model name configuration
-   - same app_id or application header behavior
-   - same auth behavior
-   - same certificate/truststore behavior if applicable
-3. Create an ADK LLM agent using llmagent.New(...).
-4. The ADK agent must use Model: OpenAIGatewayModel.
-5. The ADK agent should receive the same ContextPack and latest user utterance that the current direct model parser receives.
-6. The ADK agent must output the same structured command shape currently used by the existing flow.
-7. Keep the existing Go validation layer after ADK:
-   - canonical value validation
-   - alias normalization
-   - allowed slot validation
-   - allowed command validation
-   - current-step validation
-   - downstream invalidation rules
-8. Add a runtime switch:
-   - direct mode: existing direct company model call
-   - ADK mode: ADK llmagent using OpenAIGatewayModel
+For callbacks:
 
-Required ADK callbacks:
+- Add BeforeAgentCallbacks for trace start and redacted request metadata.
+- Add BeforeModelCallbacks to verify model/context presence and log sanitized model-request metadata.
+- Add AfterModelCallbacks for latency, model response status, token usage if available, and empty/invalid model response detection.
+- Add BeforeToolCallbacks to allow only emit_dialogue_command and perform early shape validation of the proposed command.
+- Add AfterAgentCallbacks to close the trace and detect whether a command was emitted.
+- Add AfterToolCallbacks only if the installed ADK Go version supports it. If not supported, do not invent it.
 
-Use ADK Go callbacks to make the ADK layer observable and safe. Do not use callbacks to replace the existing Go orchestrator.
+Callback boundaries:
 
-Add these callbacks if supported by the installed ADK Go version:
+- Callbacks are for observability, audit, and early safety checks.
+- Callbacks must not decide the payment next step.
+- Callbacks must not mutate payment state.
+- Callbacks must not replace CommandGuard.
+- The existing Go orchestrator remains the only source of truth for flow movement, step rollback, switch intent behavior, and downstream invalidation.
 
-1. BeforeAgentCallbacks
+Please continue with the component sketch after making those adjustments.
 
-Purpose:
+The component sketch should show:
 
-- Start an invocation trace.
-- Log session id, active flow, active step, parser mode, and trace id.
-- Do not log sensitive customer data.
-- Do not mutate payment state.
+1. demo-cli parser selection with PARSER_MODE=direct|adk.
+2. ADKParser implementing CommandParser.
+3. OpenAIGatewayModel implementing model.LLM.
+4. llmagent.New using the gateway model, command-emitting tool, and callbacks.
+5. emit_dialogue_command tool returning the existing dialogue.Command shape.
+6. Existing hooks.ValidateCommand / CommandGuard after ADK.
+7. Existing Go orchestrator applying the validated command.
+8. No business flow logic inside ADK.
 
-2. BeforeModelCallbacks
+Acceptance checks to preserve:
 
-Purpose:
-
-- Confirm the model request is using the company gateway model.
-- Ensure the ContextPack and latest user utterance are present.
-- Optionally force deterministic model settings such as low temperature if the current ADK version supports it.
-- Redact or avoid logging raw PII.
-- Log request metadata, not full sensitive prompt content.
-
-Expected behavior:
-
-- The callback should not decide the next payment step.
-- The callback should not execute business logic.
-- The callback may reject or fail fast only if required model/context fields are missing.
-
-3. AfterModelCallbacks
-
-Purpose:
-
-- Capture model response metadata.
-- Log model version, latency, finish reason, token usage if available, and error status.
-- Detect model failures or empty responses.
-- Make it obvious in logs that the response came through the ADK model path.
-
-Expected behavior:
-
-- If the model response is empty or invalid, return or cause an "unknown" command path.
-- Do not directly update payment state here.
-- Do not treat AfterModel as the final business validator.
-
-4. BeforeToolCallbacks
-
-Purpose:
-
-- Allow only the expected command-emitting tool, for example emit_dialogue_command.
-- Validate the tool argument shape before accepting it.
-- Log the proposed structured command.
-- Reject unexpected tools.
-- Optionally do early validation that command type, slot, and value exist.
-
-Expected behavior:
-
-- This is the best ADK callback location to inspect the structured command before it becomes parser output.
-- Still keep the existing Go CommandGuard after ADK as the final validation layer.
-
-5. AfterAgentCallbacks
-
-Purpose:
-
-- End the invocation trace.
-- Confirm whether a structured command was emitted.
-- Log total duration and parser outcome.
-- If no command was emitted, make the parser return an unknown command.
-
-Expected behavior:
-
-- Use this for audit, logging, and fallback.
-- Do not use this as the primary payment business validation point.
-
-If the installed ADK Go version supports AfterToolCallbacks, add it only for logging tool results. If it does not support AfterToolCallbacks, do not invent one.
-
-Acceptance criteria:
-
-1. Existing direct company model connectivity still works.
-2. New ADK path works and clearly uses:
-   - google.golang.org/adk/agent/llmagent
-   - google.golang.org/adk/model
-   - OpenAIGatewayModel implements model.LLM
-   - llmagent.New(... Model: gatewayModel ...)
-3. ADK callback logs clearly show:
-   - BeforeAgent invoked
-   - BeforeModel invoked
-   - AfterModel invoked
-   - BeforeTool invoked when emit_dialogue_command is called
-   - AfterAgent invoked
-4. The "checking" case still works in ADK mode:
-   - Current expected answer: use checking / use card
-   - User says: checking
-   - ADK path outputs structured command with canonical value: externalAccountType = checking
-   - Existing Go guard accepts it and the flow moves to the next step
-5. The disclosure correction case still works in ADK mode:
-   - User is at disclosure
-   - User says: I want to change the payment amount
-   - ADK path outputs a structured command to update amount or go back to amount
-   - Existing Go orchestrator updates amount, invalidates disclosure, and continues the flow by asking for the next required step such as payment date
-6. No payment execution is added.
-7. No real account creation is added.
-8. No business policy decision is moved into ADK.
-9. ADK is only used to parse and structure the user utterance through the company model.
-10. The existing Go CommandGuard remains the final validator before state mutation.
-
-Important design rule:
-
-ADK should not become the payment flow controller.
-ADK should be the structured command parser and observable model orchestration layer.
-The existing Go orchestrator remains the source of truth for flow state and next step decisions.
+1. Direct mode still works.
+2. ADK mode still normalizes "checking" into the existing canonical command value.
+3. ADK mode still handles disclosure correction by emitting a command that the existing Go orchestrator can use to go back to amount, invalidate disclosure, and continue.
+4. No customer-specific state leaks across Parse calls or Lambda invocations.
+5. Logs prove the ADK callbacks ran without exposing sensitive customer data.
