@@ -33,8 +33,7 @@ Amazon Connect / Lex
   -> Orchestrator reads ConversationState from Lex sessionAttributes
   -> Orchestrator resolves active same-level intent
   -> Step Prompt / ExpectedAnswerSpec
-  -> DialogueParser / ADK / LLM
-  -> DialogueCommand
+  -> DialogueParser / ADK / LLM returns normalized DialogueCommand
   -> CommandGuard
   -> Orchestrator
   -> Intent / Step
