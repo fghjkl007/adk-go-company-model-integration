@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Intent / Step Orchestration Demo</title>
+  <style>
+    body {
+      color: #172b4d;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+      margin: 32px auto;
+      max-width: 1060px;
+    }
+    h1, h2, h3 {
+      color: #172b4d;
+    }
+    h1 {
+      font-size: 32px;
+      margin-bottom: 20px;
+    }
+    h2 {
+      border-bottom: 1px solid #dfe1e6;
+      font-size: 22px;
+      margin-top: 32px;
+      padding-bottom: 6px;
+    }
+    h3 {
+      font-size: 18px;
+      margin-top: 24px;
+    }
+    code {
+      background: #f4f5f7;
+      border-radius: 3px;
+      color: #253858;
+      padding: 1px 4px;
+    }
+    pre {
+      background: #f4f5f7;
+      border: 1px solid #dfe1e6;
+      border-radius: 4px;
+      overflow-x: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+    }
+    table {
+      border-collapse: collapse;
+      margin: 12px 0 24px;
+      width: 100%;
+    }
+    th, td {
+      border: 1px solid #dfe1e6;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f4f5f7;
+      font-weight: 600;
+    }
+    .note {
+      background: #e9f2ff;
+      border-left: 4px solid #0c66e4;
+      margin: 16px 0 24px;
+      padding: 10px 12px;
+    }
+    .flow td:first-child {
+      width: 64px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Intent / Step Orchestration Demo</h1>
+
+  <div class="note">
+    This is the Confluence-paste version. Open this HTML page in a browser, copy the rendered page, then paste into Confluence. Do not paste the raw Markdown source into a normal Confluence page.
+  </div>
+
+  <h2>Purpose</h2>
+  <p>Small demo design for showing how a Go Lambda can manage multi-step intents after Lex has already classified the first intent.</p>
+
+  <h3>Key Idea</h3>
+  <pre>Lex classifies the entry intent.
+LLM normalizes the user's answer into a DialogueCommand.
+Go Orchestrator reads Lex SessionAttributes, validates/routes, updates ConversationState, and writes updated SessionAttributes.</pre>
+
+  <h2>Demo Scope</h2>
+  <ul>
+    <li>Entry intent comes from Lex.</li>
+    <li>Demo intents: <code>MakePayment</code> and <code>LinkExternalAccount</code>.</li>
+    <li>Intents are same-level; one intent does not own another.</li>
+    <li><code>MakePayment</code> can route to <code>LinkExternalAccount</code>.</li>
+    <li>Resume happens only when a <code>ResumeFrame</code> exists.</li>
+    <li>On resume, return to the original intent and original step, then rerun <code>Prepare -&gt; Prompt</code>.</li>
+    <li>Demo <code>ConversationState</code> is stored in Lex <code>sessionAttributes</code>.</li>
+  </ul>
+
+  <h2>Diagram 1: Runtime Architecture</h2>
+  <table class="flow">
+    <tr><th>#</th><th>Component</th><th>Responsibility</th></tr>
+    <tr><td>1</td><td>User</td><td>User says something in the voice flow.</td></tr>
+    <tr><td>2</td><td>Lex</td><td>Classifies the entry intent and sends intent + utterance + session id to Lambda.</td></tr>
+    <tr><td>3</td><td>Go Lambda</td><td>Reads Lex <code>SessionAttributes</code>.</td></tr>
+    <tr><td>4</td><td>Orchestrator</td><td>Resolves active intent and active step.</td></tr>
+    <tr><td>5</td><td>Current Step</td><td>Provides the current <code>ExpectedAnswerSpec</code>.</td></tr>
+    <tr><td>6</td><td>ADK / LLM</td><td>Returns a normalized <code>DialogueCommand</code>.</td></tr>
+    <tr><td>7</td><td>CommandGuard</td><td>Validates command shape and canonical values against <code>ExpectedAnswerSpec</code>.</td></tr>
+    <tr><td>8</td><td>Orchestrator</td><td>Routes the command to current step handling, delegate, resume, or reprompt.</td></tr>
+    <tr><td>9</td><td>Step.Handle</td><td>If it is a current-step answer, runs business logic and returns <code>StepResult</code>.</td></tr>
+    <tr><td>10</td><td>Orchestrator</td><td>Updates Lex <code>SessionAttributes</code> and returns the next assistant message.</td></tr>
+  </table>
+
+  <h2>Diagram 2: Step Lifecycle</h2>
+  <table class="flow">
+    <tr><th>#</th><th>Phase</th><th>Meaning</th></tr>
+    <tr><td>1</td><td>Enter step</td><td>The flow enters or re-enters a step.</td></tr>
+    <tr><td>2</td><td>Prepare</td><td>API reads and business checks before asking the question.</td></tr>
+    <tr><td>3</td><td>Prompt</td><td>Build the assistant question and <code>ExpectedAnswerSpec</code>.</td></tr>
+    <tr><td>4</td><td>Wait</td><td>Wait for user input.</td></tr>
+    <tr><td>5</td><td>ADK / LLM</td><td>Return normalized <code>DialogueCommand</code>.</td></tr>
+    <tr><td>6</td><td>CommandGuard</td><td>Validate command shape and canonical value.</td></tr>
+    <tr><td>7</td><td>Step.Handle</td><td>For answer / confirm / deny, run step business logic.</td></tr>
+    <tr><td>8</td><td>Orchestrator routing</td><td>For change step or switch intent, route globally.</td></tr>
+    <tr><td>9</td><td>Reprompt</td><td>For unknown, reprompt or fallback.</td></tr>
+  </table>
+
+  <h2>Diagram 3: MakePayment To LinkExternalAccount</h2>
+  <table>
+    <tr><th>From</th><th>To</th><th>Message / Action</th></tr>
+    <tr><td>User</td><td>Lex</td><td>"I want to make a payment"</td></tr>
+    <tr><td>Lex</td><td>Orchestrator</td><td>Lex intent = <code>MakePayment</code></td></tr>
+    <tr><td>Orchestrator</td><td>MakePayment</td><td>Start / continue <code>MakePayment</code></td></tr>
+    <tr><td>MakePayment</td><td>User</td><td>"Use your previous account or link a new account?"</td></tr>
+    <tr><td>User</td><td>Orchestrator</td><td>"link a new account"</td></tr>
+    <tr><td>Orchestrator</td><td>Lex SessionAttributes</td><td>Write <code>ResumeFrame(makePayment, currentStep)</code></td></tr>
+    <tr><td>Orchestrator</td><td>LinkExternalAccount</td><td>Delegate to <code>LinkExternalAccount</code></td></tr>
+    <tr><td>LinkExternalAccount</td><td>Orchestrator</td><td>CompleteIntent + <code>StepResult</code></td></tr>
+    <tr><td>Orchestrator</td><td>Lex SessionAttributes</td><td>Apply <code>StepResult</code> + pop <code>ResumeFrame</code></td></tr>
+    <tr><td>Orchestrator</td><td>MakePayment</td><td>Delegate to <code>MakePayment</code></td></tr>
+    <tr><td>MakePayment</td><td>MakePayment</td><td>Rerun <code>Prepare -&gt; Prompt</code></td></tr>
+    <tr><td>Orchestrator</td><td>User</td><td>Ask refreshed MakePayment question</td></tr>
+  </table>
+
+  <h2>Diagram 4: Direct LinkExternalAccount</h2>
+  <table>
+    <tr><th>From</th><th>To</th><th>Message / Action</th></tr>
+    <tr><td>User</td><td>Lex</td><td>"I want to link an account"</td></tr>
+    <tr><td>Lex</td><td>Orchestrator</td><td>Lex intent = <code>LinkExternalAccount</code></td></tr>
+    <tr><td>Orchestrator</td><td>LinkExternalAccount</td><td>Start direct <code>LinkExternalAccount</code></td></tr>
+    <tr><td>LinkExternalAccount</td><td>Orchestrator</td><td>CompleteIntent + <code>StepResult</code></td></tr>
+    <tr><td>Orchestrator</td><td>Lex SessionAttributes</td><td>Apply <code>StepResult</code></td></tr>
+    <tr><td>Orchestrator</td><td>Lex SessionAttributes</td><td>Check <code>SuspensionStack</code></td></tr>
+    <tr><td>Lex SessionAttributes</td><td>Orchestrator</td><td>Empty</td></tr>
+    <tr><td>Orchestrator</td><td>User</td><td>Finish / main menu / Lex complete</td></tr>
+  </table>
+
+  <h2>Diagram 5: ConversationState In SessionAttributes</h2>
+  <table>
+    <tr><th>Area</th><th>Example</th></tr>
+    <tr><td><code>ActivePointer</code></td><td>Example: activeIntent=makePayment, activeStep=getPaymentDate</td></tr>
+    <tr><td><code>CustomerContext</code></td><td>Example: hasExternalAccount=true, balance=120.50</td></tr>
+    <tr><td><code>MakePayment IntentState</code></td><td>Example: paymentType=onetime, amount=20, date=tomorrow</td></tr>
+    <tr><td><code>LinkExternalAccount IntentState</code></td><td>Example: accountType=checking, verificationStatus=verified</td></tr>
+    <tr><td><code>SuspensionStack / ResumeFrame</code></td><td>Example: makePayment.choosePaymentAccount</td></tr>
+  </table>
+
+  <h2>Diagram 6: SessionAttributes While Linking Account</h2>
+  <table>
+    <tr><th>Area</th><th>Example</th></tr>
+    <tr><td><code>ActivePointer</code></td><td>Example: activeIntent=linkExternalAccount, activeStep=collectAccountType</td></tr>
+    <tr><td><code>MakePayment IntentState</code></td><td>Example: paymentType=onetime, amount=20, paymentAccountRef=previousAccount</td></tr>
+    <tr><td><code>LinkExternalAccount IntentState</code></td><td>Example: accountType=pending, verificationStatus=pending</td></tr>
+    <tr><td><code>CustomerContext</code></td><td>Example: externalAccounts=[previousAccount], balance=120.50</td></tr>
+    <tr><td><code>SuspensionStack / ResumeFrame</code></td><td>Example: makePayment.choosePaymentAccount. On completion, resume makePayment.choosePaymentAccount and rerun <code>Prepare -&gt; Prompt</code>.</td></tr>
+  </table>
+
+  <h2>Diagram 7: Command Routing</h2>
+  <table>
+    <tr><th>Command act</th><th>Meaning</th><th>Owner</th></tr>
+    <tr><td><code>answer</code></td><td>Must match current <code>ExpectedAnswerSpec</code>.</td><td><code>CommandGuard</code>, then <code>Step.Handle</code></td></tr>
+    <tr><td><code>confirm</code> / <code>deny</code></td><td>Step must allow confirm / deny.</td><td><code>CommandGuard</code>, then <code>Step.Handle</code></td></tr>
+    <tr><td><code>change_step</code></td><td>Move to target step and invalidate downstream data.</td><td><code>Orchestrator</code></td></tr>
+    <tr><td><code>switch_intent</code></td><td>Validate relationship and activate target intent.</td><td><code>Orchestrator</code></td></tr>
+    <tr><td><code>unknown</code></td><td>Reprompt or fallback.</td><td><code>Orchestrator</code></td></tr>
+  </table>
+
+  <h2>Diagram 8: StepResult Apply Order</h2>
+  <table class="flow">
+    <tr><th>#</th><th>Action</th><th>Meaning</th></tr>
+    <tr><td>1</td><td>Update ConversationState</td><td>Set new values and clear stale values in the in-memory <code>ConversationState</code>.</td></tr>
+    <tr><td>2</td><td>Apply transition</td><td>Move active step, delegate to another intent, or resume from <code>ResumeFrame</code>.</td></tr>
+    <tr><td>3</td><td>Write SessionAttributes</td><td>Write the updated <code>ConversationState</code> back to Lex <code>sessionAttributes</code>.</td></tr>
+  </table>
+
+  <h2>Minimal Rules</h2>
+  <table>
+    <tr><th>Topic</th><th>Rule</th></tr>
+    <tr><td>Entry intent</td><td>Lex provides the first intent.</td></tr>
+    <tr><td>LLM</td><td>LLM only returns structured <code>DialogueCommand</code>.</td></tr>
+    <tr><td>Guard</td><td><code>CommandGuard</code> validates command shape and canonical values against <code>ExpectedAnswerSpec</code>.</td></tr>
+    <tr><td>Step</td><td>Step owns business logic and returns <code>StepResult</code>; it does not write Lex SessionAttributes.</td></tr>
+    <tr><td>Orchestrator</td><td>Only Orchestrator updates Lex SessionAttributes from <code>StepResult</code> and handles active step / delegate / resume.</td></tr>
+    <tr><td>Storage</td><td><code>ConversationState</code> lives inside Lex <code>sessionAttributes</code>.</td></tr>
+    <tr><td>Resume</td><td>Resume only if <code>ResumeFrame</code> exists.</td></tr>
+    <tr><td>Resume target</td><td>Return to original intent + original step.</td></tr>
+    <tr><td>Resume execution</td><td>Rerun <code>Prepare -&gt; Prompt</code>.</td></tr>
+  </table>
+
+  <h2>Demo Scenarios</h2>
+  <ol>
+    <li><code>MakePayment</code> happy path.</li>
+    <li><code>MakePayment -&gt; LinkExternalAccount -&gt; resume MakePayment</code>.</li>
+    <li>Direct <code>LinkExternalAccount</code> completes without resuming <code>MakePayment</code>.</li>
+    <li>User changes amount/date/account after later steps; disclosure becomes stale.</li>
+    <li>User says <code>automatic pay</code>; LLM normalizes to <code>autopay</code>.</li>
+  </ol>
+</body>
+</html>
