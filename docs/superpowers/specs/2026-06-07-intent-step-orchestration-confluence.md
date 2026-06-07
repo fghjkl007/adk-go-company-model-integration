@@ -188,7 +188,7 @@ flowchart LR
 | Guard | `CommandGuard` validates before updating Lex SessionAttributes. |
 | Step | Step returns `StepResult`; it does not write Lex SessionAttributes. |
 | Orchestrator | Only Orchestrator updates Lex SessionAttributes from `StepResult`. |
-| State storage | `ConversationState` lives inside Lex `sessionAttributes`. |
+| Storage | `ConversationState` lives inside Lex `sessionAttributes`. |
 | Resume | Resume only if `ResumeFrame` exists. |
 | Resume target | Return to original intent + original step. |
 | Resume execution | Rerun `Prepare -> Prompt`. |
