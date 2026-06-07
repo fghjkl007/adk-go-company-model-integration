@@ -287,7 +287,7 @@ Example:
 step: choosePaymentType
 expectedSlot: paymentType
 allowedValues: [onetime, autopay]
-allowedActs: [answer, change_step, switch_intent, start_over, unknown]
+allowedActs: [answer, change_step, switch_intent, unknown]
 ```
 
 ### DialogueCommand
@@ -312,8 +312,6 @@ confirm
 deny
 change_step
 switch_intent
-start_over
-side_question
 unknown
 ```
 
@@ -350,9 +348,6 @@ if act == change_step:
   targetStep must exist
   targetStep must be allowed by ChangePolicy
 
-if act == start_over:
-  current intent must allow reset
-
 if invalid:
   downgrade to unknown
 ```
@@ -377,14 +372,6 @@ switch_intent
   -> validate peer intent relationship
   -> push ResumeFrame if switching away from an active intent
   -> activate target intent
-
-start_over
-  -> reset current intent state
-  -> enter entry step
-
-side_question
-  -> answer allowed side question
-  -> resume current active step
 
 unknown
   -> reprompt current step or trigger fallback policy
@@ -503,7 +490,6 @@ Examples:
 "I want to link an external account"
 "I picked checking, but I want to link a new account"
 "change the payment amount"
-"start over"
 ```
 
 Global interrupts are handled before current `Step.Handle`.
@@ -652,7 +638,6 @@ Required demo tests:
 Optional tests:
 
 - Concurrent parser calls do not share captured command or session state.
-- Side question answer returns to active step.
 
 ## Acceptance Criteria
 
