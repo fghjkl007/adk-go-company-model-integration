@@ -198,12 +198,35 @@ flowchart TD
   ConversationState --> SuspensionStack["SuspensionStack: ResumeFrame list"]
 
   CustomerContext --> Accounts["externalAccounts / balance / recentPayments"]
+  CustomerContext --> CustomerExample["Example: hasExternalAccount=true, balance=120.50"]
   IntentStates --> MakePaymentState["MakePayment IntentState"]
   IntentStates --> LinkAccountState["LinkExternalAccount IntentState"]
+  MakePaymentState --> MakePaymentExample["Example: paymentType=onetime, paymentAmount=20, paymentDate=tomorrow"]
+  LinkAccountState --> LinkAccountExample["Example: accountType=checking, verificationStatus=verified"]
+  ActivePointer --> ActiveExample["Example: activeIntent=makePayment, activeStep=getPaymentDate, phase=awaitingInput"]
   SuspensionStack --> ResumeFrame["ResumeFrame: original intent + original step"]
+  ResumeFrame --> ResumeExample["Example: makePayment.choosePaymentAccount"]
 ```
 
-### 7. Effect Apply Order
+### 7. Example State Snapshot During Account Linking
+
+```mermaid
+flowchart TD
+  State["ConversationState while LinkExternalAccount is active"] --> Active["ActivePointer"]
+  State --> IntentStates2["IntentStates"]
+  State --> Customer["CustomerContext"]
+  State --> Stack["SuspensionStack"]
+
+  Active --> ActiveValue["activeIntent=linkExternalAccount, activeStep=collectAccountType, phase=awaitingInput"]
+  IntentStates2 --> MP["makePayment IntentState: paymentType=onetime, paymentAmount=20, paymentAccountRef=previousAccount"]
+  IntentStates2 --> LEA["linkExternalAccount IntentState: accountType=pending, verificationStatus=pending"]
+  Customer --> Ctx["hasExternalAccount=true, externalAccounts=[previousAccount], balance=120.50"]
+  Stack --> Frame["ResumeFrame: intent=makePayment, step=choosePaymentAccount, phase=awaitingInput"]
+
+  Frame --> ResumeRule["When LinkExternalAccount completes, resume makePayment.choosePaymentAccount and rerun Prepare -> Prompt"]
+```
+
+### 8. Effect Apply Order
 
 ```mermaid
 flowchart LR
