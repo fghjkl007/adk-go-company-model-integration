@@ -63,6 +63,134 @@ User utterance
   -> next assistant message
 ```
 
+## Confluence Diagram Pack
+
+The diagrams below are written in Mermaid. In Confluence, paste each block into a Mermaid macro if available. If Mermaid rendering is not available, keep the section titles and use the tables/text as discussion notes.
+
+### 1. Runtime Architecture
+
+```mermaid
+flowchart TD
+  User["User utterance"] --> Parser["DialogueParser / ADK / LLM"]
+  Parser --> Command["DialogueCommand"]
+  Command --> Guard["CommandGuard"]
+  Guard --> Orchestrator["Orchestrator"]
+  Orchestrator --> IntentRegistry["IntentRegistry"]
+  Orchestrator --> ActiveStep["Active Step"]
+  ActiveStep --> StepResult["StepResult"]
+  StepResult --> Effects["StateEffects"]
+  Effects --> Applier["EffectApplier"]
+  Applier --> StateRepo["StateRepository"]
+  StateRepo --> Response["Next assistant message"]
+
+  Guard -. "invalid command" .-> Unknown["Unknown / Reprompt"]
+  Unknown --> Response
+```
+
+### 2. Step Lifecycle
+
+```mermaid
+flowchart TD
+  Enter["Enter or re-enter step"] --> Prepare["Prepare: business checks / API reads"]
+  Prepare --> Prompt["Prompt: message + ExpectedAnswerSpec"]
+  Prompt --> Wait["Wait for user input"]
+  Wait --> Parse["Parse user utterance into DialogueCommand"]
+  Parse --> Guard["CommandGuard"]
+  Guard --> Decision{"Command act"}
+  Decision -->|answer / confirm / deny| Handle["Step.Handle"]
+  Decision -->|switch_intent / change_step / start_over| Orchestrator["Orchestrator routing"]
+  Decision -->|unknown| Reprompt["Reprompt / fallback"]
+  Handle --> Result["StateEffects + NextAction"]
+  Result --> Apply["Orchestrator applies effects"]
+  Apply --> Next["Next step / complete / resume"]
+  Reprompt --> Wait
+```
+
+### 3. Command Routing
+
+```mermaid
+flowchart TD
+  Command["Validated DialogueCommand"] --> Act{"act"}
+
+  Act -->|answer| CheckAnswer["Match ExpectedAnswerSpec"]
+  Act -->|confirm / deny| CheckConfirm["Step allows confirm / deny"]
+  Act -->|change_step| ChangeStep["Move to target step + invalidate downstream data"]
+  Act -->|switch_intent| SwitchIntent["Validate relationship + activate target intent"]
+  Act -->|start_over| StartOver["Reset current intent"]
+  Act -->|side_question| SideQuestion["Answer side question + resume current step"]
+  Act -->|unknown| Unknown["Reprompt / fallback"]
+
+  CheckAnswer --> StepHandle["Call active Step.Handle"]
+  CheckConfirm --> StepHandle
+  StepHandle --> Effects["StateEffects + NextAction"]
+  Effects --> Apply["Orchestrator applies effects"]
+```
+
+### 4. Peer Intent Switch And Resume
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Orchestrator
+  participant MakePayment
+  participant LinkExternalAccount
+  participant StateRepository
+
+  User->>Orchestrator: "I want to link an external account"
+  Orchestrator->>Orchestrator: Validate relationship
+  Orchestrator->>StateRepository: Push ResumeFrame(makePayment, currentStep)
+  Orchestrator->>LinkExternalAccount: Start peer intent
+  LinkExternalAccount->>Orchestrator: CompleteIntent + StateEffects
+  Orchestrator->>StateRepository: Apply effects and pop ResumeFrame
+  Orchestrator->>MakePayment: Resume original step
+  MakePayment->>MakePayment: Re-enter Prepare -> Prompt
+  Orchestrator->>User: Ask refreshed question
+```
+
+### 5. Direct LinkExternalAccount Without Resume
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Orchestrator
+  participant LinkExternalAccount
+  participant StateRepository
+
+  User->>Orchestrator: "I want to link an account"
+  Orchestrator->>LinkExternalAccount: Start direct peer intent
+  LinkExternalAccount->>Orchestrator: CompleteIntent + StateEffects
+  Orchestrator->>StateRepository: Apply effects
+  Orchestrator->>StateRepository: Check SuspensionStack
+  StateRepository-->>Orchestrator: Empty
+  Orchestrator->>User: Finish / main menu / Lex complete
+```
+
+### 6. Conversation State Model
+
+```mermaid
+flowchart TD
+  ConversationState["ConversationState"] --> CustomerContext["CustomerContext: shared customer facts"]
+  ConversationState --> IntentStates["IntentStates: per-intent drafts"]
+  ConversationState --> ActivePointer["ActivePointer: activeIntent / activeStep / phase"]
+  ConversationState --> SuspensionStack["SuspensionStack: ResumeFrame list"]
+
+  CustomerContext --> Accounts["externalAccounts / balance / recentPayments"]
+  IntentStates --> MakePaymentState["MakePayment IntentState"]
+  IntentStates --> LinkAccountState["LinkExternalAccount IntentState"]
+  SuspensionStack --> ResumeFrame["ResumeFrame: original intent + original step"]
+```
+
+### 7. Effect Apply Order
+
+```mermaid
+flowchart LR
+  Effects["StateEffects"] --> Validate["1. Validate allowed effects"]
+  Validate --> Data["2. Apply data changes"]
+  Data --> Invalidate["3. Invalidate stale fields"]
+  Invalidate --> Transition["4. Apply transition"]
+  Transition --> Persist["5. Persist ConversationState"]
+```
+
 ## Core Components
 
 | Component | Responsibility |
