@@ -142,12 +142,19 @@ flowchart TD
   Conv --> Customer["CustomerContext"]
   Conv --> Stack["SuspensionStack"]
 
-  Active --> ActiveValue["activeIntent=linkExternalAccount, activeStep=collectAccountType"]
-  Intents --> MP["makePayment: paymentType=onetime, amount=20, paymentAccountRef=previousAccount"]
-  Intents --> LEA["linkExternalAccount: accountType=pending, verificationStatus=pending"]
-  Customer --> Ctx["externalAccounts=[previousAccount], balance=120.50"]
-  Stack --> Frame["ResumeFrame: makePayment.choosePaymentAccount"]
-  Frame --> Resume["On completion: resume makePayment.choosePaymentAccount and rerun Prepare -> Prompt"]
+  Active --> ActiveValue["Example: activeIntent=linkExternalAccount, activeStep=collectAccountType"]
+
+  Intents --> MP["MakePayment IntentState"]
+  MP --> MPEx["Example: paymentType=onetime, amount=20, paymentAccountRef=previousAccount"]
+
+  Intents --> LEA["LinkExternalAccount IntentState"]
+  LEA --> LEAEx["Example: accountType=pending, verificationStatus=pending"]
+
+  Customer --> Ctx["Example: externalAccounts=[previousAccount], balance=120.50"]
+
+  Stack --> Frame["ResumeFrame"]
+  Frame --> FrameEx["Example: makePayment.choosePaymentAccount"]
+  FrameEx --> Resume["On completion: resume makePayment.choosePaymentAccount and rerun Prepare -> Prompt"]
 ```
 
 ## Diagram 7: Command Routing
