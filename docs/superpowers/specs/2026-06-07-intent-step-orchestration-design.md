@@ -30,7 +30,7 @@ This document is architecture only. It does not require implementation code.
 Amazon Connect / Lex
   -> Lex classified intent + utterance + session id
   -> Go Lambda
-  -> Orchestrator loads ConversationState
+  -> Orchestrator reads ConversationState from Lex sessionAttributes
   -> Orchestrator resolves active same-level intent
   -> Step Prompt / ExpectedAnswerSpec
   -> DialogueParser / ADK / LLM
@@ -41,7 +41,7 @@ Amazon Connect / Lex
   -> StepResult
   -> StateEffects
   -> EffectApplier
-  -> StateRepository
+  -> Lex sessionAttributes
   -> next assistant message
 ```
 
@@ -119,7 +119,7 @@ Step must not:
 
 - Directly write `ConversationState`.
 - Switch intent by itself.
-- Persist state.
+- Write Lex `sessionAttributes`.
 
 ## Step Lifecycle
 
@@ -167,7 +167,9 @@ If the user says something like "link a new account" during an amount step, the 
 
 ## State Model
 
-`ConversationState` is durable state loaded by Lambda each turn and saved after each turn.
+`ConversationState` is the structured dialogue state stored in Lex `sessionAttributes` for the demo. Lambda reads it from `sessionAttributes` at the start of each turn and writes the updated version back to `sessionAttributes` in the Lex response.
+
+Production storage can be revisited later, but this demo assumes the whole conversation state is carried through Lex `sessionAttributes`.
 
 ```text
 ConversationState
