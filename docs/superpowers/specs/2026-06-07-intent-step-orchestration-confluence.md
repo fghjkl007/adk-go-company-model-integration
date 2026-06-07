@@ -27,7 +27,7 @@ The LLM is not the flow controller. The LLM only normalizes natural language int
 | Business validation | `CommandGuard` is the final validator before state mutation. |
 | State mutation | Only the `Orchestrator` applies validated `StateEffects`. |
 | Step responsibility | Step owns business handling, but never directly mutates state. |
-| Global interrupt | At any step, user can ask to change payment method, link account, go back, or start over. |
+| Global interrupt | At any step, user can ask to change payment method, link account, or go back. |
 
 ## Goals
 
@@ -116,7 +116,7 @@ flowchart TD
   Parse --> Guard["CommandGuard"]
   Guard --> Decision{"Command act"}
   Decision -->|answer / confirm / deny| Handle["Step.Handle"]
-  Decision -->|switch_intent / change_step / start_over| Orchestrator["Orchestrator routing"]
+  Decision -->|switch_intent / change_step| Orchestrator["Orchestrator routing"]
   Decision -->|unknown| Reprompt["Reprompt / fallback"]
   Handle --> Result["StateEffects + NextAction"]
   Result --> Apply["Orchestrator applies effects"]
@@ -134,8 +134,6 @@ flowchart TD
   Act -->|confirm / deny| CheckConfirm["Step allows confirm / deny"]
   Act -->|change_step| ChangeStep["Move to target step + invalidate downstream data"]
   Act -->|switch_intent| SwitchIntent["Validate relationship + activate target intent"]
-  Act -->|start_over| StartOver["Reset current intent"]
-  Act -->|side_question| SideQuestion["Answer side question + resume current step"]
   Act -->|unknown| Unknown["Reprompt / fallback"]
 
   CheckAnswer --> StepHandle["Call active Step.Handle"]
@@ -378,7 +376,7 @@ Example:
 step: choosePaymentType
 expectedSlot: paymentType
 allowedValues: [onetime, autopay]
-allowedActs: [answer, change_step, switch_intent, start_over, unknown]
+allowedActs: [answer, change_step, switch_intent, unknown]
 ```
 
 ### DialogueCommand
@@ -402,8 +400,6 @@ Allowed `act` values:
 - `deny`
 - `change_step`
 - `switch_intent`
-- `start_over`
-- `side_question`
 - `unknown`
 
 Normalization examples:
@@ -425,8 +421,6 @@ The canonical value must match what existing Go validation expects.
 | `confirm` / `deny` | Call active `Step.Handle` only if current step allows confirm/deny. |
 | `change_step` | Do not call current `Handle`; move to allowed target step and invalidate downstream data. |
 | `switch_intent` | Do not call current `Handle`; validate peer relationship, suspend current intent if needed, activate target intent. |
-| `start_over` | Reset current intent state and enter its entry step. |
-| `side_question` | Answer using allowed side-question handler, then resume current step. |
 | `unknown` | Reprompt current step or trigger fallback policy. |
 
 Only `answer`, `confirm`, and `deny` enter current `Step.Handle`.
@@ -531,7 +525,6 @@ I want to use another card
 I want to link an external account
 I picked checking, but I want to link a new account
 change the payment amount
-start over
 ```
 
 Global interrupts are handled before current `Step.Handle`.
@@ -666,7 +659,6 @@ Required demo tests:
 Optional:
 
 - Concurrent parser calls do not share captured command or session state.
-- Side question answer returns to active step.
 
 ## Open Discussion Points
 
