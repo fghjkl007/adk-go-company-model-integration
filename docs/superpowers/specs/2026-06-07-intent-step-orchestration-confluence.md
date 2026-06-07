@@ -80,10 +80,10 @@ sequenceDiagram
   MakePayment->>User: "Use your previous account or link a new account?"
   User->>Orchestrator: "link a new account"
   Orchestrator->>SessionAttributes: Write ResumeFrame(makePayment, currentStep)
-  Orchestrator->>LinkExternalAccount: Start LinkExternalAccount
+  Orchestrator->>LinkExternalAccount: Delegate to LinkExternalAccount
   LinkExternalAccount->>Orchestrator: CompleteIntent + StepResult
   Orchestrator->>SessionAttributes: Apply StepResult + pop ResumeFrame
-  Orchestrator->>MakePayment: Resume original step
+  Orchestrator->>MakePayment: Delegate to MakePayment
   MakePayment->>MakePayment: Rerun Prepare -> Prompt
   Orchestrator->>User: Ask refreshed MakePayment question
 ```
