@@ -22,11 +22,17 @@ This document is architecture only. It does not require implementation code.
 5. `Step` owns business handling, but never directly mutates state.
 6. `LLM` and ADK callbacks never mutate business state.
 7. Resume returns to the original intent and original step, then re-enters that step.
+8. Lex remains the first-layer intent classifier. Lambda receives a Lex-classified intent before invoking the dialogue orchestrator.
 
 ## Top-Level Runtime Path
 
 ```text
-User utterance
+Amazon Connect / Lex
+  -> Lex classified intent + utterance + session id
+  -> Go Lambda
+  -> Orchestrator loads ConversationState
+  -> Orchestrator resolves active peer intent
+  -> Step Prompt / ExpectedAnswerSpec
   -> DialogueParser / ADK / LLM
   -> DialogueCommand
   -> CommandGuard
@@ -39,7 +45,11 @@ User utterance
   -> next assistant message
 ```
 
-The LLM is not the flow controller. It only maps natural language into a command shape that Go code can validate and understand.
+Lex is still responsible for first-layer intent classification. The Orchestrator uses the Lex intent to start or route the top-level peer intent when there is no active suspended dialogue state.
+
+Once a conversation is already active, the persisted `ConversationState` is the source of truth for `activeIntent` and `activeStep`. The LLM is not the initial intent classifier and is not the flow controller. It only maps natural language into a command shape that Go code can validate and understand.
+
+Mid-flow `switch_intent` is different from initial Lex classification. It is a structured dialogue command emitted inside an active conversation and must still pass `CommandGuard` plus intent relationship policy.
 
 ## Core Components
 
