@@ -32,8 +32,7 @@ flowchart TD
   SessionRead --> Orchestrator["Orchestrator"]
   Orchestrator --> Active["Resolve active intent + active step"]
   Active --> Spec["Current Step + ExpectedAnswerSpec"]
-  Spec --> LLM["ADK / LLM normalizes answer"]
-  LLM --> Command["DialogueCommand"]
+  Spec --> Command["ADK / LLM returns normalized DialogueCommand"]
   Command --> Guard["CommandGuard"]
   Guard --> Route["Orchestrator routes command"]
   Route --> Step["Step.Handle if current-step answer"]
@@ -53,7 +52,7 @@ flowchart TD
   Enter["Enter step"] --> Prepare["Prepare: API reads / business checks"]
   Prepare --> Prompt["Prompt: message + ExpectedAnswerSpec"]
   Prompt --> Wait["Wait for user input"]
-  Wait --> Parse["LLM returns DialogueCommand"]
+  Wait --> Parse["ADK / LLM returns normalized DialogueCommand"]
   Parse --> Guard["CommandGuard"]
   Guard --> Act{"Command act"}
   Act -->|answer / confirm / deny| Handle["Step.Handle"]
