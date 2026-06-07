@@ -179,11 +179,10 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  StepResult["StepResult"] --> Validate["1. Validate"]
-  Validate --> Data["2. Apply data"]
-  Data --> Invalidate["3. Invalidate stale fields"]
-  Invalidate --> Transition["4. Apply transition"]
-  Transition --> Persist["5. Write SessionAttributes"]
+  StepResult["StepResult"] --> Validate["1. Validate StepResult\nallowed data + transition"]
+  Validate --> Update["2. Update ConversationState\nset new values + clear stale values"]
+  Update --> Transition["3. Apply transition"]
+  Transition --> Persist["4. Write SessionAttributes"]
 ```
 
 ## Minimal Rules
