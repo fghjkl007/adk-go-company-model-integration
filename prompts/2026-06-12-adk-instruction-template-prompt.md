@@ -107,7 +107,7 @@ Output rules:
 
 The latest user utterance stays in the user message, NOT in the instruction and NOT in session state.
 
-Field-name rule: use the exact JSON field names already defined by the existing `DialogueCommand` / `emit_dialogue_command` tool schema. For example, if the existing schema uses `targetStep` / `targetIntent`, do not introduce `target_step` / `target_intent` in the prompt, golden files, or tests. The snake_case names above are placeholders for whatever the real schema defines.
+Field-name rule: use the exact JSON field names already defined by the existing `DialogueCommand` / `emit_dialogue_command` tool schema. For example, if the existing schema uses `targetStep` / `targetIntent`, do not introduce `target_step` / `target_intent` in the prompt, golden files, or tests. This field-name rule applies only to JSON object field names in DialogueCommand, such as targetStep / targetIntent. It does not rename act enum values such as change_step or switch_intent, and it does not rename ADK session-state template keys such as active_intent or expected_slot.
 
 ### 3. Wiring
 
