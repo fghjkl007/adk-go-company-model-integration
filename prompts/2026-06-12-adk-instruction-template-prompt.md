@@ -61,6 +61,7 @@ Rules:
 - Missing optional section key must not fail.
 - Do not write `latest_user_utterance` into ADK session state. It must be passed only as the user message content for this invocation.
 - Do not store the raw assistant question or disclosure text in ADK session state. Store only a safe summary in `last_assistant_prompt_summary`, for example: "The assistant was asking for payment type." / "The assistant was asking the user to accept the one-time payment disclosure." Raw disclosure/question text may contain amount/date/account values and would violate the no-PII rule.
+- `returnable_steps_section` must be rendered only from active intent `StepHistory`. `allowed_switch_intents_section` must be rendered only from active intent `Relationships` / `AllowedSwitchIntents`. Do not include unvisited steps or unrelated peer intents.
 - NEVER write into state: raw assistant disclosure/question text, full StepRegistry, unvisited steps, all registered intents, raw account numbers, customer identity, or IntentState payment amount/date values. Same exclusion list as the tool-guard doc "Prompt Context Requirement".
 
 ### 2. Instruction template
@@ -98,13 +99,15 @@ Output rules:
 4. Do not use confirm or deny as acts.
 5. If the user answered the current question, use act=answer.
 6. For answer, slot must equal expected_slot.
-7. For answer, value must be canonical and must be one of allowed_values when allowed_values is non-empty.
-8. For change_step, target_step must come from returnable_steps only.
-9. For switch_intent, target_intent must come from allowed_switch_intents only.
+7. For answer, value must be canonical and must be one of the values listed in allowed_values_section when that section is present.
+8. For change_step, the target step must come from returnable_steps_section only.
+9. For switch_intent, the target intent must come from allowed_switch_intents_section only.
 10. If the utterance cannot be mapped safely, emit unknown.
 ```
 
 The latest user utterance stays in the user message, NOT in the instruction and NOT in session state.
+
+Field-name rule: use the exact JSON field names already defined by the existing `DialogueCommand` / `emit_dialogue_command` tool schema. For example, if the existing schema uses `targetStep` / `targetIntent`, do not introduce `target_step` / `target_intent` in the prompt, golden files, or tests. The snake_case names above are placeholders for whatever the real schema defines.
 
 ### 3. Wiring
 
